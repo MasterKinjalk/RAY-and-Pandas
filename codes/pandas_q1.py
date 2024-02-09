@@ -12,8 +12,27 @@ import typing
 
 def pandas_q1(time: str, lineitem:pd.DataFrame) -> float:
     # TODO: your codes begin
-    return -1
-    # end of your codes
+        # Convert the 'time' parameter to a datetime object
+    time_as_datetime = pd.to_datetime(time)
+    
+    # Ensure the 'l_shipdate' column is in datetime format
+    lineitem['l_shipdate'] = pd.to_datetime(lineitem['l_shipdate'])
+    
+    # Check the dtype of 'l_shipdate' to ensure conversion was successful
+    print(f"'l_shipdate' dtype after conversion: {lineitem['l_shipdate'].dtype}")
+
+    # Perform the filtering with 'l_shipdate' as datetime objects
+    filtered_df = lineitem[
+        (lineitem['l_shipdate'] >= time_as_datetime) &
+        (lineitem['l_shipdate'] < time_as_datetime + pd.DateOffset(years=1)) &
+        (lineitem['l_discount'].between(0.06 - 0.01, 0.06 + 0.010001)) &
+        (lineitem['l_quantity'] < 24)
+    ]
+    
+    # Calculate the sum of 'l_extendedprice' * 'l_discount' for the filtered rows
+    revenue_increase = (filtered_df['l_extendedprice'] * filtered_df['l_discount']).sum()
+    
+    return revenue_increase
 
 
 

@@ -14,10 +14,62 @@ import typing
 import util.judge_df_equal
 
 
+import ray
+import pandas as pd
+import numpy as np
+
+# Assuming Ray has been initialized elsewhere as needed
+# ray.init()
+
+@ray.remote
+def process_chunk(customer_df, orders_chunk, lineitem_chunk):
+    # Filter orders and lineitem DataFrames based on the date conditions
+    orders_filtered = orders_chunk[orders_chunk['o_orderdate'] < pd.Timestamp('1995-03-15')]
+    lineitem_filtered = lineitem_chunk[lineitem_chunk['l_shipdate'] > pd.Timestamp('1995-03-15')]
+    
+    # Join filtered customer DataFrame with orders, then with lineitem
+    merged_df = pd.merge(customer_df, orders_filtered, how='inner', left_on='c_custkey', right_on='o_custkey')
+    merged_df = pd.merge(merged_df, lineitem_filtered, how='inner', left_on='o_orderkey', right_on='l_orderkey')
+    
+    # Perform group by aggregation to calculate revenue
+    result = merged_df.groupby(['l_orderkey', 'o_orderdate', 'o_shippriority']).agg(
+        revenue=('l_extendedprice', lambda x: (x * (1 - merged_df.loc[x.index, 'l_discount'])).sum())
+    ).reset_index()
+    
+    # Sort the results within each chunk
+    result = result.sort_values(by=['revenue', 'o_orderdate'], ascending=[False, True])
+    return result
+
 def ray_q3(segment: str, customer: pd.DataFrame, orders: pd.DataFrame, lineitem: pd.DataFrame) -> pd.DataFrame:
-    #TODO: your codes begin
-    return pd.DataFrame()
-    #end of your codes
+    ray.init(num_cpus = 4)
+    # Filter customer DataFrame based on segment
+    filtered_customers = customer[customer['c_mktsegment'] == segment]
+    
+    # Convert dates to datetime format for filtering
+    orders['o_orderdate'] = pd.to_datetime(orders['o_orderdate'])
+    lineitem['l_shipdate'] = pd.to_datetime(lineitem['l_shipdate'])
+    
+    # Split orders and lineitem DataFrames into chunks for parallel processing
+    orders_chunks = np.array_split(orders, 4)  # Adjust number of chunks as needed
+    lineitem_chunks = np.array_split(lineitem, 4)
+    
+    # Dispatch tasks to Ray for parallel processing
+    tasks = [process_chunk.remote(filtered_customers, orders_chunk, lineitem_chunk) 
+             for orders_chunk, lineitem_chunk in zip(orders_chunks, lineitem_chunks)]
+    
+    # Retrieve results from Ray tasks
+    results = ray.get(tasks)
+    
+    # Combine results from all chunks
+    combined_result = pd.concat(results)
+    
+    # Perform final aggregation and sorting on the combined result
+    final_result = combined_result.groupby(['l_orderkey', 'o_orderdate', 'o_shippriority']).agg(
+        revenue=('revenue', 'sum')
+    ).reset_index().sort_values(by=['revenue', 'o_orderdate'], ascending=[False, True]).head(10)
+    ray.shutdown()
+    return final_result
+
 
 
 

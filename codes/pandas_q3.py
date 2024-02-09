@@ -16,8 +16,31 @@ import util.judge_df_equal
 
 def pandas_q3(segment: str, customer: pd.DataFrame, orders: pd.DataFrame, lineitem: pd.DataFrame) -> pd.DataFrame:
     #TODO: your codes begin
-    return pd.DataFrame()
-    #end of your codes
+    # Convert dates to datetime objects for comparison
+    orders['o_orderdate'] = pd.to_datetime(orders['o_orderdate'])
+    lineitem['l_shipdate'] = pd.to_datetime(lineitem['l_shipdate'])
+    
+    # Filter DataFrames based on the conditions
+    filtered_customers = customer[customer['c_mktsegment'] == segment]
+    filtered_orders = orders[orders['o_orderdate'] < '1995-03-15']
+    filtered_lineitem = lineitem[lineitem['l_shipdate'] > '1995-03-15']
+    
+    # Merge the filtered DataFrames
+    merged_df = filtered_customers.merge(filtered_orders, left_on='c_custkey', right_on='o_custkey')
+    merged_df = merged_df.merge(filtered_lineitem, left_on='o_orderkey', right_on='l_orderkey')
+    
+    # Group by the specified columns and calculate 'revenue'
+    result = merged_df.groupby(['l_orderkey', 'o_orderdate', 'o_shippriority']).agg(
+        revenue=('l_extendedprice', lambda x: (x * (1 - merged_df.loc[x.index, 'l_discount'])).sum())
+    ).reset_index()
+    
+    # Sort the results
+    result = result.sort_values(by=['revenue', 'o_orderdate'], ascending=[False, True])
+    
+    # Select the top 10
+    result = result.head(10)
+    
+    return result
 
 
 

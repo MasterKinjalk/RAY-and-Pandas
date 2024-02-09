@@ -11,14 +11,43 @@ import typing
 import numpy as np
 
 
-def ray_q1(time: str, lineitem:pd.DataFrame) -> float:
-    # TODO: your codes begin
-    return -1
-    # end of your codes
+
+
+@ray.remote
+def calculate_revenue_chunk(chunk, time_as_datetime):
+    # Ensure 'l_shipdate' is a datetime format within the function (if not already converted)
+    chunk['l_shipdate'] = pd.to_datetime(chunk['l_shipdate'])
+    
+    # Perform the filtering
+    filtered_chunk = chunk[
+        (chunk['l_shipdate'] >= time_as_datetime) &
+        (chunk['l_shipdate'] < time_as_datetime + pd.DateOffset(years=1)) &
+        (chunk['l_discount'].between(0.06 - 0.01, 0.06 + 0.010001)) &
+        (chunk['l_quantity'] < 24)
+    ]
+    
+    # Calculate and return the sum of 'l_extendedprice' * 'l_discount'
+    return (filtered_chunk['l_extendedprice'] * filtered_chunk['l_discount']).sum()
+
+
+def ray_q1(time: str, lineitem: pd.DataFrame) -> float:
+    time_as_datetime = pd.to_datetime(time)
+    data_chunks = np.array_split(lineitem, 8)  # Adjust the number of chunks based on your dataset size and available resources
+    ray.init()
+    # Dispatch tasks
+    tasks = [calculate_revenue_chunk.remote(chunk, time_as_datetime) for chunk in data_chunks]
+
+    # Retrieve and sum up the results
+    results = ray.get(tasks)
+    total_revenue = sum(results)
+    ray.shutdown()
+    return total_revenue
+
 
 
 
 if __name__ == "__main__":
+    
     # import the logger to output message
     import logging
     logger = logging.getLogger()
@@ -29,6 +58,7 @@ if __name__ == "__main__":
                         'l_receiptdate', 'l_shipinstruct', 'l_shipmode', 'l_comment']
     # run the test
     result = ray_q1("1994-01-01", lineitem)
+
     try:
         assert abs(result - 123141078.2283) < 0.01
         print("*******************pass**********************")

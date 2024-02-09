@@ -11,12 +11,42 @@ import pandas as pd
 import ray
 import typing
 import util.judge_df_equal
+import numpy as np
 
+
+
+@ray.remote
+def process_orders_chunk(orders_chunk, filtered_lineitem):
+    # Orders have already been filtered by date before chunking, so just join with lineitem
+    valid_orders = pd.merge(orders_chunk, filtered_lineitem, left_on='o_orderkey', right_on='l_orderkey', how='inner').drop_duplicates('o_orderkey')
+    # Return counts by o_orderpriority for the chunk
+    return valid_orders.groupby('o_orderpriority').size().reset_index(name='order_count')
 
 def ray_q4(time: str, orders: pd.DataFrame, lineitem: pd.DataFrame) -> pd.DataFrame:
-    #TODO: your codes begin
-    return pd.DataFrame()
-    #end of your codes
+    ray.init()
+    time_as_datetime = pd.to_datetime(time)
+    end_time = time_as_datetime + pd.DateOffset(months=3)
+    # Ensure datetime conversion is done outside the remote function
+    orders['o_orderdate'] = pd.to_datetime(orders['o_orderdate'])
+    lineitem['l_commitdate'] = pd.to_datetime(lineitem['l_commitdate'])
+    lineitem['l_receiptdate'] = pd.to_datetime(lineitem['l_receiptdate'])
+
+    # Pre-filter lineitem DataFrame
+    filtered_lineitem = lineitem[lineitem['l_commitdate'] < lineitem['l_receiptdate']]
+    # Filter orders DataFrame by date range before splitting into chunks
+    filtered_orders = orders[(orders['o_orderdate'] >= time_as_datetime) & (orders['o_orderdate'] < end_time)]
+    
+    orders_chunks = np.array_split(filtered_orders, 6)  # Splitting after filtering
+    
+    tasks = [process_orders_chunk.remote(chunk, filtered_lineitem) for chunk in orders_chunks]
+    
+    results = ray.get(tasks)
+    combined_result = pd.concat(results)
+    
+    final_result = combined_result.groupby('o_orderpriority').agg(order_count=('order_count', 'sum')).reset_index().sort_values(by='o_orderpriority')
+    
+    ray.shutdown()
+    return final_result
 
 
 
