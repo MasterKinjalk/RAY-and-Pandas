@@ -18,8 +18,6 @@ def pandas_q1(time: str, lineitem:pd.DataFrame) -> float:
     # Ensure the 'l_shipdate' column is in datetime format
     lineitem['l_shipdate'] = pd.to_datetime(lineitem['l_shipdate'])
     
-    # Check the dtype of 'l_shipdate' to ensure conversion was successful
-    print(f"'l_shipdate' dtype after conversion: {lineitem['l_shipdate'].dtype}")
 
     # Perform the filtering with 'l_shipdate' as datetime objects
     filtered_df = lineitem[
